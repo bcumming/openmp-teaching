@@ -1,0 +1,120 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\cscschapter{False Sharing}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\cscschapter{Tiling}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{frame}[fragile]{}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \begin{info}{Cache}
+        \begin{itemize}
+            \item DRAM is much slower than CPU
+            \begin{itemize}
+                \item hundreds of CPU cycles to fetch a \emph{64-byte cache line}
+            \end{itemize}
+        \item CPUs have \emph{cache}, which is high-speed memory on the CPU, to hide latency
+            \item there are multiple levels of cache on the Sandy Bridge
+            \begin{itemize}
+                \item L1 : 32 KB data, 32 KB instruction \emph{per core}
+                \item L2 : 256 KB \emph{per core}
+                \item L3 : 20 MB \emph{shared by all cores}
+            \end{itemize}
+            \item recently-used data is retained in cache
+            \begin{itemize}
+                \item a line in cache is evicted when a cache line is fetched
+                \item the hows and whys of this are complicated!
+            \end{itemize}
+            \item the key optimization is to maximize cache use
+            \begin{itemize}
+                \item use all information in a cache line
+                \item avoid loading cache lines more than once
+            \end{itemize}
+        \end{itemize}
+    \end{info}
+\end{frame}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{frame}[fragile]{}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \begin{info}{One-dimensional blur kernel}
+        \centering $\text{out}_i \leftarrow 0.25(\text{in}_{i-1}+2\text{in}_i+\text{in}_{i+1})$
+        \begin{itemize}
+            \item each output value is a linear combination of neighbours in input array
+            \item first we look at naiive implementation
+        \end{itemize}
+    \end{info}
+
+    \begin{code}{Implementation of blur kernel}
+        \begin{lstlisting}[style=boxopenmptiny]
+void blur(double *in, double *out, int n){
+  float buff[n];
+  for(auto i=1; i<n-1; ++i)
+    out[i] = 0.25*(2*in[i]+in[i-1]+in[i+1]);
+}
+        \end{lstlisting}
+    \end{code}
+
+\end{frame}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{frame}[fragile]{}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \begin{info}{Buffering}
+        A pipelined workflow uses the output of one ``kernel'' as the input of another
+        \begin{itemize}
+            \item on the CPU these can be optimized by keeping the intermediate result in cache for the second kernel
+        \end{itemize}
+        An example is two stencils, applied in order
+    \end{info}
+
+    \begin{code}{Double blur}
+        \begin{lstlisting}[style=boxopenmptiny]
+void blur_twice(const double* in , double* out , int n) {
+  static double* buffer = malloc(n, sizeof(double)*n);
+
+  for(auto i=1; i<n-1; ++i) {
+    buffer[i] = 0.25*(in[i-1] + 2.0*in[i] + in[i+1]);
+  }
+  for(auto i=2; i<n-2; ++i) {
+    out[i] = 0.25*(buffer[i-1] + 2.0*buffer[i] + buffer[i+1]);
+  }
+}
+        \end{lstlisting}
+    \end{code}
+
+\end{frame}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{frame}[fragile]{}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \begin{info}{Let's use OpenMP with C++11}
+        \begin{itemize}
+            \item parallelize each for loop with an OpenMP directive
+            \item use a lambda to express the blur kernel
+        \end{itemize}
+    \end{info}
+
+    \begin{code}{Double blur: basic parallelization}
+        \begin{lstlisting}[style=boxopenmptiny]
+void blur_twice(const double* in , double* out , int n) {
+  static double* buffer = malloc(n, sizeof(double)*n);
+
+  auto blur = [](double* f, int i) {
+      return 0.25*(f[i-1] + 2.0*f[i] + f[i+1]);
+  }
+  @#pragma omp parallel for@
+  for(auto i=1; i<n-1; ++i) {
+      buffer[i] = blur(in,i);
+  }
+  @#pragma omp parallel for@
+  for(auto i=2; i<n-2; ++i) {
+      out[i] = blur(buffer,i);
+  }
+}
+        \end{lstlisting}
+    \end{code}
+
+\end{frame}
